@@ -1,0 +1,20 @@
+{
+  "options": [
+    {
+      "key": "hideAbandonedRailways",
+      "label": "Hide abandoned railways",
+      "type": "bool",
+      "default": true,
+      "help": "Active and disused tracks stay visible. Save, then restart BeamNG.Earth normally to apply. First installation: click Start once in this add-on's card."
+    },
+    {
+      "key": "serverAction",
+      "label": "Server patch",
+      "type": "choice",
+      "default": "Filter railways",
+      "choices": ["Filter railways", "Restore original server"],
+      "help": "To undo the local server patch, select Restore original server, save, click Start, then restart Earth normally."
+    }
+  ],
+  "run": {"args": []}
+}

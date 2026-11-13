@@ -1,0 +1,29 @@
+name: Publish add-on release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-addon-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build and validate the companion asset
+        run: |
+          python3 build_release.py
+          python3 -m py_compile dist/earthrailfilter.py
+      - name: Publish versioned release and download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/publish_release.py
