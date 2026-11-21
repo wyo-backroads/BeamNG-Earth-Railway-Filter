@@ -21,7 +21,7 @@ import types
 import uuid
 import zlib
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 MARKER = "EARTH_RAIL_FILTER_0_3_0"
 COOKIE = struct.Struct("!8sIIII64s")
 ENTRY = struct.Struct("!IIIIBc")
@@ -70,14 +70,24 @@ def injection(runtime, config):
 
 
 def validate_module(code):
-    if not isinstance(code, types.CodeType) or not {"drawn", "wear", "parts", "WEAR_FLAGS"} <= set(code.co_names):
-        raise PatchError("Unsupported railway module; expected Earth's drawn/wear/parts API")
+    if not isinstance(code, types.CodeType):
+        raise PatchError("Unsupported Earth railway module")
     functions = {c.co_name: c for c in code.co_consts if isinstance(c, types.CodeType)}
+    parts = functions.get("parts")
+    if parts is None:
+        raise PatchError("Unsupported Earth railway module")
     drawn = functions.get("drawn")
     if drawn is None or drawn.co_varnames[:3] != ("feats", "i", "bridges"):
         raise PatchError("Unsupported railways.drawn signature; no files changed")
-    # This format relies on wear 2 meaning abandoned. Reject other semantics.
-    if not any(isinstance(value, tuple) and ("is_abandoned", 2) in value for value in code.co_consts):
+    if "_drawn_cols" in code.co_names:
+        columns = functions.get("_drawn_cols")
+        index = functions.get("_rail_index")
+        if (columns is None or columns.co_argcount != 1 or "rail_drawn_cols" not in columns.co_names
+                or "_drawn_cols" not in drawn.co_names or index is None or "_drawn_cols" not in index.co_names
+                or "_rail_index" not in parts.co_names):
+            raise PatchError("Unsupported native railway classification layout; no files changed")
+    elif not ({"wear", "WEAR_FLAGS"} <= set(code.co_names) and any(
+            isinstance(value, tuple) and ("is_abandoned", 2) in value for value in code.co_consts)):
         raise PatchError("The expected abandonment classification was not found")
 
 
@@ -103,9 +113,9 @@ def patch_pyz(data, runtime, config):
         raise PatchError("Unsupported railways archive entry")
     original = zlib.decompress(data[pos:pos + length])
     code = marshal.loads(original)
-    validate_module(code)
-    if MARKER in repr(code.co_consts):
+    if isinstance(code, types.CodeType) and MARKER in code.co_consts:
         raise PatchError("A patch is already present without a matching receipt")
+    validate_module(code)
     # Preserve the original bytecode verbatim, and execute it before the hook.
     wrapped = ("import marshal as _erf_m, zlib as _erf_z, base64 as _erf_b\n"
                f"exec(_erf_m.loads(_erf_z.decompress(_erf_b.b64decode({base64.b64encode(zlib.compress(original)).decode()!r}))))\n"

@@ -1,4 +1,15 @@
-# Menu-runner validation — 0.3.1
+# Railway Filter validation
+
+## 0.3.2
+
+The tests used the BeamNG.Earth 1.10.1-beta.dev.555 source, the native railway
+module from its Linux AppImage, and a disposable copy of its signed Windows EXE.
+They verified active, disused and abandoned track through the native geometry
+builder, tram rendering with both toggle settings, and restoration of the Windows
+EXE byte for byte. The Windows Add-ons menu and in-game rendering still need a
+live Windows check.
+
+## 0.3.1
 
 This version replaces the separate launcher, the blocked Lua startup attempt and
 the manual PowerShell installer with Earth's existing companion Add-ons runner.

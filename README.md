@@ -12,6 +12,10 @@ and disused railways stay visible, and you keep using the normal Earth launcher.
 
 No coding, Python installation, scripts to run yourself, or extra launcher required.
 
+If you already have the add-on, open it on **1.10.1-beta.dev.555**, click
+**Update**, then click **Start** and restart Earth. Run **Start** again whenever
+you switch to a new Earth executable.
+
 ## Toggle
 
 Open the add-on's **Options**, change **Hide abandoned railways**, and save.
@@ -23,7 +27,7 @@ for initial setup; "not running" afterward is normal.
 Choose **Options > Server patch > Restore original server**, save, and click
 **Start**. Restart Earth when prompted, then remove the add-on if desired.
 
-**Windows only. Tested with BeamNG.Earth 1.9.1-beta.dev.410.** Setup patches your
+**Windows only. Compatible with BeamNG.Earth 1.10.1-beta.dev.555.** Setup patches your
 local server and keeps an exact original-file backup. A patched EXE no longer
 retains its publisher's signature; restoring the backup restores the signed original.
 

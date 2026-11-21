@@ -8,6 +8,7 @@ import struct
 import sys
 import tempfile
 import time
+from types import ModuleType
 import unittest
 from unittest import mock
 
@@ -16,15 +17,12 @@ sys.path[:0] = [str(ROOT), str(ROOT / 'resources')]
 import build_release
 import patch_server as patch
 
-EARTH = ROOT.parent / 'BeamNG.Earth-1.9.1-beta.dev.410'
+EARTH = Path(os.environ.get('BNE_FILTER_TEST_SOURCE', ROOT.parent / 'BeamNG.Earth-1.10.1-beta.dev.555'))
 sys.path[:0] = [str(EARTH / 'server'), str(EARTH)]
-import addons
 
-SOURCE = (EARTH / 'server/railways.py').read_bytes()
+SOURCE_FILE = EARTH / 'server/railways.py'
 RUNTIME = (ROOT / 'resources/runtime.py').read_text(encoding='utf-8')
-EXE = Path(os.environ.get('BNE_FILTER_TEST_EXE', ROOT.parent.parent / 'BeamNG.Earth-1.9.1-beta.dev.410.exe'))
-if not EXE.is_file():
-    EXE = ROOT.parent.parent / 'BeamNG.Earth-1.9.1-beta.dev.407.exe'
+EXE = Path(os.environ.get('BNE_FILTER_TEST_EXE', ROOT.parent.parent / 'BeamNG.Earth-1.10.1-beta.dev.555.exe'))
 
 
 def load_companion():
@@ -35,13 +33,18 @@ def load_companion():
     return module, script
 
 
+@unittest.skipUnless(SOURCE_FILE.is_file(), 'BeamNG.Earth source unavailable (BNE_FILTER_TEST_SOURCE)')
 class SourceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = SOURCE_FILE.read_bytes()
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix='rail companion source ')
         self.addCleanup(self.tmp.cleanup)
         self.folder = Path(self.tmp.name)
         self.target = self.folder / 'railways.py'
-        self.target.write_bytes(SOURCE)
+        self.target.write_bytes(self.source)
         self.data = self.folder / 'addon'
         self.data.mkdir()
         self.companion, built = load_companion()
@@ -50,6 +53,8 @@ class SourceTests(unittest.TestCase):
         patch.atomic_json(self.data / 'installed.json', {'file': self.script.name})
 
     def test_native_manifest_options_are_valid(self):
+        import addons
+
         manifest = json.loads((ROOT / 'beamngEarth_addon.json').read_text())
         options = addons.parse_options(manifest['options'])
         self.assertEqual(options[0]['key'], 'hideAbandonedRailways')
@@ -76,7 +81,7 @@ class SourceTests(unittest.TestCase):
     def test_menu_setup_is_reversible_without_external_commands(self):
         record = self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
         self.assertEqual(record['state'], 'pending')
-        self.assertEqual(self.target.read_bytes(), SOURCE)
+        self.assertEqual(self.target.read_bytes(), self.source)
         patch.apply_now(record)
         self.assertIn(patch.BEGIN, self.target.read_bytes())
         again = self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
@@ -84,7 +89,7 @@ class SourceTests(unittest.TestCase):
         patch.atomic_json(self.data / 'options.json', {'serverAction': 'Restore original server', 'hideAbandonedRailways': False})
         record = self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
         patch.apply_now(record)
-        self.assertEqual(self.target.read_bytes(), SOURCE)
+        self.assertEqual(self.target.read_bytes(), self.source)
 
     def test_upgrade_reuses_verified_original_instead_of_layering_patches(self):
         record = self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
@@ -93,28 +98,98 @@ class SourceTests(unittest.TestCase):
         other_config = self.data / 'migrated-control.json'
         patch.atomic_json(other_config, {'requestToken': 'new', 'enabled': True, 'modPath': str(self.script)})
         upgraded = patch.prepare(self.target, other_config, self.data / 'upgrade.json', RUNTIME + '\n# upgrade\n', token='new')
-        self.assertEqual(upgraded['originalSha'], patch.sha(SOURCE))
+        self.assertEqual(upgraded['originalSha'], patch.sha(self.source))
         self.assertEqual(Path(upgraded['backup']).read_bytes(), original_backup)
         patch.apply_now(upgraded)
         restored = patch.prepare(self.target, other_config, self.data / 'upgrade.json', RUNTIME, operation='restore', token='new')
         patch.apply_now(restored)
-        self.assertEqual(self.target.read_bytes(), SOURCE)
+        self.assertEqual(self.target.read_bytes(), self.source)
 
     def test_uninstalled_or_invalid_companion_is_refused(self):
         (self.data / 'installed.json').unlink()
         with self.assertRaisesRegex(RuntimeError, 'Add-ons menu'):
             self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
-        self.assertEqual(self.target.read_bytes(), SOURCE)
+        self.assertEqual(self.target.read_bytes(), self.source)
 
     def test_changed_server_is_not_overwritten(self):
         record = self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
         patch.apply_now(record)
-        self.target.write_bytes(SOURCE + b'\n# upstream update\n')
+        self.target.write_bytes(self.source + b'\n# upstream update\n')
         with self.assertRaisesRegex(RuntimeError, 'backup'):
             self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
 
+    def test_dev555_filter_reaches_native_track_index_and_tram_geometry(self):
+        import fast
+        import numpy as np
+        import rails
+        import railways
 
-@unittest.skipUnless(os.name == 'nt' and EXE.is_file(), 'Windows packaged executable unavailable')
+        if not hasattr(railways, '_rail_index') or getattr(fast._ef, 'VERSION', 0) < 491:
+            self.skipTest('Earth source and earthfast with native railway index required')
+        sys.path.insert(0, str(EARTH / 'server/tests'))
+        self.addCleanup(sys.path.pop, 0)
+        from test_roads import FRAME, features
+
+        track = features(
+            [[(0, y), (250, y)] for y in (10, 20, 30, 40, 50)],
+            ['standard_gauge'] * 3 + ['tram'] * 2,
+            ids=['active', 'disused', 'abandoned', 'old-tram', 'active-tram'],
+            subtypes=['rail'] * 5,
+            flags=[(3, 'is_abandoned'), (3, 'is_bridge', 0.4, 0.6)],
+        )
+        track.attrs['osm_railway'] = np.array(['rail', 'disused', 'abandoned', '', ''])
+        abandoned_tram = features([[(0, 40), (250, 40)]], ['tram'], subtypes=['rail'],
+                                  flags=[(0, 'is_abandoned')])
+        box = (0., 0., 256., 256.)
+        record = self.companion.setup(self.data, self.script, self.target, notify=False, defer=False)
+        patch.apply_now(record)
+        stock_tram_lines, stock_chunks = rails.tram_lines, rails.tile_chunks
+        for hidden in (False, True):
+            with self.subTest(hidden=hidden), mock.patch.dict(os.environ), mock.patch.object(
+                    rails, 'tram_lines', stock_tram_lines), mock.patch.object(rails, 'tile_chunks', stock_chunks):
+                for key in ('BNGE_PEERS', 'BNGE_WORLD_BUNDLE', 'BNGE_RAIL_FILTER_SNAPSHOT'):
+                    os.environ.pop(key, None)
+                patch.atomic_json(self.data / 'options.json', {'hideAbandonedRailways': hidden})
+                mod = ModuleType('railways')
+                exec(compile(self.target.read_bytes(), str(self.target), 'exec'), vars(mod))
+                with mock.patch.dict(sys.modules, railways=mod):
+                    self.assertEqual(mod.drawn(track, 0), ('standard_gauge', 0))
+                    self.assertEqual(mod.drawn(track, 1), ('standard_gauge', 1))
+                    self.assertEqual(mod.drawn(track, 2), None if hidden else ('standard_gauge', 2))
+                    parts = mod.parts(FRAME, [track], box)
+                    self.assertEqual({fid for fid, *_ in parts}, {'active', 'disused'} if hidden else
+                                     {'active', 'disused', 'abandoned', 'old-tram'})
+                    self.assertEqual(len(rails.tram_lines(FRAME, 0, 0, [track])), 1 if hidden else 3)
+                    self.assertEqual(bool(rails.tile_chunks(FRAME, 0, 0, [abandoned_tram])), not hidden)
+                    index = mod._rail_index(track, FRAME)
+                    self.assertIs(mod._rail_index(track, FRAME), index)
+                    if hidden:
+                        track.attrs['osm_railway'] = np.array(['rail', 'disused', 'rail', '', ''])
+                        self.assertEqual(mod.drawn(track, 2), ('standard_gauge', 0))
+                        self.assertIsNot(mod._rail_index(track, FRAME), index)
+        self.assertEqual(track.attrs['class'].tolist(), ['standard_gauge'] * 3 + ['tram'] * 2)
+
+
+@unittest.skipUnless(EXE.is_file(), 'BeamNG.Earth Windows executable unavailable (BNE_FILTER_TEST_EXE)')
+class ExecutableTests(unittest.TestCase):
+    def test_signed_release_can_be_patched_and_restored_byte_for_byte(self):
+        original = EXE.read_bytes()
+        with tempfile.TemporaryDirectory(prefix='rail exe test ') as temporary:
+            folder = Path(temporary)
+            target = folder / EXE.name
+            target.write_bytes(original)
+            config = folder / 'control.json'
+            status = folder / 'status.json'
+            record = patch.prepare(target, config, status, RUNTIME)
+            self.assertTrue(record['originalSigned'])
+            patch.apply_now(record)
+            self.assertNotEqual(patch.sha(target.read_bytes()), patch.sha(original))
+            patch.apply_now(patch.prepare(target, config, status, RUNTIME, operation='restore'))
+            self.assertEqual(target.read_bytes(), original)
+
+
+@unittest.skipUnless(os.name == 'nt' and EXE.is_file() and SOURCE_FILE.is_file(),
+                     'Windows and the BeamNG.Earth source and executable are required')
 class MenuRunnerTests(unittest.TestCase):
     def test_real_native_install_start_options_workers_and_restore(self):
         built = build_release.main()
@@ -130,7 +205,7 @@ class MenuRunnerTests(unittest.TestCase):
                     'repo': 'example/rail-menu-test', 'kind': 'companion',
                     'summary': 'Local test fixture', 'licence': 'MIT', 'asset': r'^earthrailfilter\.py$',
                     'run': manifest['run'], 'options': manifest['options'],
-                    'local': {'file': str(built), 'tag': 'v0.3.0'}
+                    'local': {'file': str(built), 'tag': 'v0.3.2'}
                 }]
             }
             patch.atomic_json(folder / 'registry.json', spec)
@@ -196,9 +271,10 @@ service.runner.stop_all()
             probe = folder / 'probe.py'
             probe.write_text('''
 def run():
- import railways,revisit
- from types import SimpleNamespace
- f=SimpleNamespace(attrs={'subtype':['rail'],'class':['standard_gauge'],'osm_railway':['abandoned']},rules={})
+ import mapgeom,numpy as np,railways,revisit
+ f=mapgeom.build('roads',['example'],[(mapgeom.LINE,[[np.array([[0.,0.],[0.001,0.]])]])])
+ f.attrs={'subtype':['rail'],'class':['standard_gauge'],'osm_railway':['abandoned']}
+ f.rules={}
  return {'result':railways.drawn(f,0),'cache':revisit.code_key(),'plans':revisit.switches_key(),'state':railways._earth_rail_filter}
 ''')
             check = folder / 'check.py'
@@ -212,6 +288,8 @@ print('RESULT='+json.dumps({'main':probe.run(),'child':child}))
             results=[]
             # Save via the real Addons options service, without starting the
             # setup companion again. Runtime reads those native saved options.
+            import addons
+
             entries=addons.parse_registry(spec,local=True)
             service=addons.Addons(str(folder/'game'),str(folder/'cache'),None,registry=entries,data_dir=str(folder/'data'))
             for hidden in (True,False):
