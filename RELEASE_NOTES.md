@@ -7,6 +7,9 @@ disused tracks stay visible, and the normal Earth launcher works as usual.
 Change the toggle under **Options** and restart Earth to apply it. An original-file
 backup and restore option are included.
 
-Windows only; tested with **1.9.1-beta.dev.410**. Includes the signed-file alignment
-fix for dev.410. Setup modifies the local server EXE, so its publisher signature
-does not remain valid on the patched copy. The original signed file is backed up.
+**New in 0.3.2:** Supports the native railway classifier in
+**BeamNG.Earth 1.10.1-beta.dev.555**. If the add-on is already installed, click
+**Update → Start** on the new Earth build, then restart Earth.
+
+Windows only. Setup modifies the local server EXE, which removes its publisher
+signature. The add-on keeps an exact backup of the signed original.

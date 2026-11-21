@@ -22,7 +22,8 @@ class ReleaseTests(unittest.TestCase):
     def test_release_comparison_accepts_line_endings_and_rejects_changed_code(self):
         built = build_release.main().read_bytes()
         self.assertEqual(publisher.code_identity(built), publisher.code_identity(built.replace(b'\n', b'\r\n')))
-        self.assertNotEqual(publisher.code_identity(built), publisher.code_identity(built.replace(b"VERSION = '0.3.1'", b"VERSION = '0.3.2'")))
+        changed = built.replace(b'def main():', b'def changed_main():', 1)
+        self.assertNotEqual(publisher.code_identity(built), publisher.code_identity(changed))
 
 
 if __name__ == '__main__':

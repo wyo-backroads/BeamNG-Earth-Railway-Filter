@@ -1,5 +1,52 @@
 """Injected railway filter. The stock module executes before install() is called."""
-VERSION = "0.3.0"
+VERSION = "0.3.2"
+
+
+def install_classifier(namespace):
+    import functools
+
+    stock_columns = namespace.get("_drawn_cols")
+    if stock_columns is not None:
+        @functools.wraps(stock_columns)
+        def drawn_columns(feats):
+            columns = stock_columns(feats)
+            cached = feats.__dict__.get("_earth_rail_filter_columns")
+            if cached is not None and cached[0] is columns:
+                return cached[1]
+            plain, bridges, wear = columns
+            # The native track index and drawn() both consume these class codes.
+            # Preserve the stock columns and return a stable tuple for Earth's index cache.
+            dropped = [i for i, value in enumerate(wear) if value == 2 and bridges[i] >= 0]
+            filtered = columns
+            if dropped:
+                plain, bridges = plain.copy(), bridges.copy()
+                for i in dropped:
+                    plain[i] = bridges[i] = -1
+                filtered = (plain, bridges, wear)
+            feats.__dict__["_earth_rail_filter_columns"] = (columns, filtered)
+            return filtered
+
+        namespace["_drawn_cols"] = drawn_columns
+
+        def abandoned_tram(feats, i):
+            _, bridges, wear = stock_columns(feats)
+            return bridges[i] >= 0 and wear[i] == 2
+
+        return abandoned_tram
+
+    stock_drawn = namespace["drawn"]
+
+    def abandoned_tram(feats, i):
+        result = stock_drawn(feats, i, bridges=True)
+        return result is not None and result[1] == 2
+
+    @functools.wraps(stock_drawn)
+    def drawn(feats, i, bridges=False):
+        result = stock_drawn(feats, i, bridges=bridges)
+        return None if result is not None and result[1] == 2 else result
+
+    namespace["drawn"] = drawn
+    return abandoned_tram
 
 
 def install(namespace, config_path):
@@ -73,14 +120,7 @@ def install(namespace, config_path):
     if not hidden:
         return
 
-    original = namespace["drawn"]
-
-    @functools.wraps(original)
-    def drawn(feats, i, bridges=False):
-        result = original(feats, i, bridges=bridges)
-        return None if result is not None and result[1] == 2 else result
-
-    namespace["drawn"] = drawn
+    abandoned_tram = install_classifier(namespace)
     import rails
     import numpy as np
 
@@ -89,12 +129,9 @@ def install(namespace, config_path):
             if feats is None or "class" not in feats.attrs or "subtype" not in feats.attrs:
                 yield feats
                 continue
-            hit = np.flatnonzero((feats.attrs["class"] == "tram") & (feats.attrs["subtype"] == "rail"))
-            dropped = []
-            for i in hit:
-                result = original(feats, i, bridges=True)
-                if result is not None and result[1] == 2:
-                    dropped.append(i)
+            hit = np.flatnonzero((np.asarray(feats.attrs["class"]).astype(str) == "tram")
+                                 & (np.asarray(feats.attrs["subtype"]).astype(str) == "rail"))
+            dropped = [i for i in hit if abandoned_tram(feats, i)]
             if not dropped:
                 yield feats
                 continue

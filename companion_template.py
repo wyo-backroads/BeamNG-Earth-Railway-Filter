@@ -13,7 +13,7 @@ import sys
 import uuid
 import zipfile
 
-VERSION = '0.3.1'
+VERSION = '0.3.2'
 PAYLOAD = '__HELPERS_ZIP_BASE64__'
 
 
